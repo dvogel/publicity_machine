@@ -194,7 +194,7 @@ class PRNewsWireScraper(BaseScraper):
             pubdate = datetime.now()
             location = u''
 
-        out['date'] = int(time.mktime(pubdate.timetuple())*1000)
+        out['date'] = pubdate.isoformat()
         out['location'] = location
 
         return out
