@@ -1,0 +1,76 @@
+#!/usr/bin/env python
+
+import feedparser
+import lxml
+import re
+import logging
+import traceback
+
+from churn import util, fuzzydate
+from churn.basescraper import BaseScraper
+
+class AmPetroScraper(BaseScraper):
+    name = 'ampetro'
+    doc_type = 4
+
+    def find_latest(self):
+        feed_url = 'http://www.api.org/rss/rss.cfm?ssid=11&section=Newsroom&viewrss=Y'
+
+        logging.debug("read feed %s", feed_url)
+        feed = feedparser.parse(feed_url)
+        return [e.link for e in feed.entries]
+
+    def extract(self, html, url):
+        out = {'url': url, 'source': 'API'}
+        doc = lxml.html.fromstring(html)
+
+        main_container = doc.cssselect('.CS_Textblock_Text')[0]
+
+        # Find the title container relative to the main container
+        e = main_container
+        while e is not None and e.tag.lower() != 'table':
+            e = e.getparent()
+        title_div = e.getprevious()
+        out['title'] = title_div.text_content().strip()
+
+        # Strip out the non-article content
+        share_this = main_container.cssselect('p > span.st_sharethis')[0].getparent()
+        main_container.remove(share_this)
+
+        author_block = main_container.cssselect('p:first-child')[0]
+        main_container.remove(author_block)
+
+        (author_name, author_phone, author_email) = author_block.text_content().split('|')
+        out['author_name'] = author_name.strip()
+        out['author_phone'] = author_phone.strip()
+        out['author_email'] = author_email.strip()
+
+        # We should be left with just article content here. Now pull the
+        # byline out of the text.
+        text = util.render_text(main_container)
+
+        (before, after) = re.split(u'[\u2013\u2014]+', text, 1)
+        if before.strip().find(u'\n') > 0:
+            (before, byline) = before.rsplit(u'\n', 1)
+            out['text'] = before + after
+        else:
+            byline = before
+            out['text'] = after
+
+
+        # Try to separate the location from the date in the byline
+        comma_parts = byline.split(',')
+        assert len(comma_parts) > 2, "Byline must have location and date: {0!r}".format(match.group('byline'))
+        out['location'] = ','.join(comma_parts[:-2]).strip()
+        datetext = ','.join(comma_parts[-2:]).strip()
+        (fd, span) = fuzzydate.parse_date(datetext)
+        out['date'] = fd.date().isoformat()
+
+        return out
+
+
+
+if __name__ == '__main__':
+    scraper = AmPetroScraper()
+    scraper.main()
+
